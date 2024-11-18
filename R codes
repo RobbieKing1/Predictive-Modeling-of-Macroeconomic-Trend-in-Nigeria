@@ -1,0 +1,80 @@
+library(tidyverse)
+#install.packages(c("cluster", "factoextra", "dbscan", "Rtsne"))
+library(neuralnet)
+library(cluster)
+library(factoextra)
+library(dbscan)
+library(Rtsne)
+set.seed(123)
+k1 <-readxl::read_excel("C:/Users/DELL/Desktop/2024_Projects/Robbie/Spreadsheet.xlsx", sheet=1)
+glimpse(k1)
+ka <-cor(k1)
+write.csv(ka, file= "correlation.csv")
+summarytools::dfSummary(k1)
+1. Data cleaning process - Renaming the column names
+k1 <- k1%>%dplyr::rename("GDP"=`REAL GDP (N)`, "Importation"=`IMPORTATION (N)`, "Export"=`EXPORT (N)`,
+  "Inflation"=`INFLATION(%)`,"Exchange"=`EXCHANGE RATE(N)`, "Gov_Exp"=`GOVERNMENT EXPENDITURE(N)`,
+  "Unemployment"=`UNEMPLOYMENT RATE(N)`, "Poverty"=...10)
+2. Data preprocessing - scaling the dataset
+data_scaled <- as.data.frame(scale(k1[, -1]))
+#colnames(data_scaled)
+###------------------------------------------------------------
+FIRST DEPENDENT VARIABLE PREDICTION
+###-----------------------------------------------------------
+3. ARTIFICIAL NEURAL NETWORK
+3.1 GDP
+model <-neuralnet::neuralnet(GDP ~ Importation+Export+Inflation+Exchange+Gov_Exp+Unemployment+ MPR, data=data_scaled, hidden = 2, err.fct = "sse",act.fct = "logistic")
+plot(model)
+3.1 Making predictions
+ann_predictions <- neuralnet::compute(model, data_scaled[, -1])$net.result
+ann_predictions <- ann_predictions * sd(k1$GDP) + mean(k1$GDP) 
+po <- t(t(ann_predictions))%>%as.data.frame()# Rescale back to original values
+Result <- cbind(po, k1$GDP)
+Result = Result%>%rename("Predicted" =V1, "Observed" =`k1$GDP`)%>%
+  mutate(Error= Observed - Predicted, Percent = (Predicted/Observed)*100)
+write.csv(Result, file= "Result.csv")
+print(ann_predictions)
+3.2. Poverty Rate
+model_porty<-neuralnet::neuralnet(Poverty ~ Importation+Export+Inflation+Exchange+Gov_Exp+Unemployment+ MPR, data=data_scaled, hidden = 2, err.fct = "sse",act.fct = "logistic")
+plot(model_porty)
+3.1 Making predictions
+ann_predictions_porty <- neuralnet::compute(model_porty, data_scaled)$net.result
+ann_predictions_porty <- ann_predictions_porty * sd(k1$Poverty) + mean(k1$Poverty)  # Rescale back to original values
+po2 <- t(t(ann_predictions_porty))%>%as.data.frame()# Rescale back to original values
+Result2 <- cbind(po2, k1$Poverty)
+Result2 = Result2%>%rename("Predicted" =V1, "Observed" =`k1$Poverty`)%>%
+  mutate(Error= Observed - Predicted, Percent = (Predicted/Observed)*100)
+write.csv(Result2, file= "Result2.csv")
+print(ann_predictions_porty)
+4. K-means clustering for the pattern recongnition
+year_labels <- k1$YEAR
+kmeans_result <- kmeans(data_scaled, centers = 3)  # Adjust centers as necessary
+# Visualize the K-means clusters with 'year' labels
+factoextra::fviz_cluster(kmeans_result, data = data_scaled, geom = "point") +
+  geom_text(aes(label = year_labels), vjust = -1, hjust = 0.5, size = 3)
+5. Hierarchical Clustering
+# I Compute the distance matrix and hierarchical clustering
+distance_matrix <- dist(data_scaled, method = "euclidean")
+hc_result <- hclust(distance_matrix, method = "ward.D2")
+plot(hc_result, labels = year_labels)
+6. t-Distributed Stochastic Neighbor Embedding (t-SNE)
+tsne_result <- Rtsne::Rtsne(data_scaled, dims = 2, perplexity = 3)
+# Plot the t-SNE result
+# Convert t-SNE results to a data frame and add clusters and year labels
+tsne_df <- as.data.frame(tsne_result$Y)
+colnames(tsne_df) <- c("Dim1", "Dim2")  
+tsne_df$Cluster <- as.factor(kmeans_result$cluster) 
+tsne_df$Year <- year_labels  
+ggplot(tsne_df, aes(x = Dim1, y = Dim2, color = Cluster, label = Year)) +
+  geom_point(size = 3) +  # Plot points
+  geom_text(vjust = -0.5, size = 4) +  # Add year labels
+  labs(title = NULL) +
+  theme_minimal() +
+  theme(legend.position = "right",
+        panel.grid = element_blank())
+write.csv(tsne_df , file="tsne_df.csv")
+7. DBSCAN Clustering
+dbscan_result <- dbscan::dbscan(data_scaled, eps = 0.5, minPts = 2)
+factoextra::fviz_cluster(dbscan_result, data = data_scaled, geom = "point") +
+  geom_text(aes(x = data_scaled[,1], y = data_scaled[,2], label = year_labels), 
+            vjust = -1, hjust = 0.5, size = 3)
